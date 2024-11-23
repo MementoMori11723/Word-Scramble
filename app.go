@@ -1,6 +1,9 @@
 package main
 
-import "flag"
+import (
+	"Word-scramble/generate"
+	"flag"
+)
 
 func main() {
   server := flag.String(
@@ -11,6 +14,9 @@ func main() {
     println(
       "App is running as a CLI",
     )
+    q, a := generate.Scramble()
+    println("Question:", q)
+    println("Answer:", a)
   } else {
     println(
       "App is running as a server on port",
