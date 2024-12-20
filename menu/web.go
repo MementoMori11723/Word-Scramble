@@ -2,22 +2,28 @@ package menu
 
 import (
 	"Word-scramble/generate"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 )
 
 var (
 	//go:embed web/*
 	pages  embed.FS
 	routes = map[string]http.HandlerFunc{
-		"/":      home,
-		"/about": about,
-		"/error": errorPage,
-    "POST /word": api, 
+		"/":          home,
+		"/about":     about,
+		"/error":     errorPage,
+		"POST /word": api,
 	}
 )
 
@@ -26,28 +32,55 @@ type errorHandler struct {
 }
 
 func Web(port string) {
-	go func() {
-		mux := http.NewServeMux()
-		for route, handler := range routes {
-			mux.HandleFunc(route, handler)
-		}
-		server := http.Server{
-			Addr:    ":" + port,
-			Handler: mux,
-		}
+	var wg sync.WaitGroup
+	stop := make(chan os.Signal, 1)
+	enter := make(chan bool)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	mux := http.NewServeMux()
+	for route, handler := range routes {
+		mux.HandleFunc(route, handler)
+	}
+	server := http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	wg.Add(1)
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
 		fmt.Println("Starting server on http://localhost:" + port)
-		fmt.Println("Press ENTER to stop the server!")
 		err := server.ListenAndServe()
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			slog.Error(err.Error())
 			fmt.Println("Can't run the server!")
 		}
+	}(&wg)
+
+	go func() {
+		fmt.Println("Press ENTER to stop the server!")
+		fmt.Scanln()
+		enter <- true
 	}()
-	fmt.Scanln()
+
+	select {
+	case <-stop:
+		fmt.Println("Shutting down the server...")
+	case <-enter:
+		fmt.Println("Shutting down the server...")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		fmt.Println("Error during shutdown:", err)
+	} else {
+		fmt.Println("Server Stoped gracefully!")
+	}
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
-  w.Header().Set("Content-Type","text/html")
+	w.Header().Set("Content-Type", "text/html")
 	var errTmpl errorHandler
 	tmpl, err := template.ParseFS(pages, "web/index.html")
 	if r.URL.Path != "/" {
@@ -69,7 +102,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 }
 
 func about(w http.ResponseWriter, r *http.Request) {
-  w.Header().Set("Content-Type","text/html")
+	w.Header().Set("Content-Type", "text/html")
 	var errTmpl errorHandler
 	tmpl, err := template.ParseFS(pages, "web/about.html")
 	if r.URL.Path != "/about" {
@@ -98,7 +131,7 @@ func errorPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handleError errorHandler) error(w http.ResponseWriter, _ *http.Request) {
-  w.Header().Set("Content-Type","text/html")
+	w.Header().Set("Content-Type", "text/html")
 	tmpl, err := template.ParseFS(pages, "web/error.html")
 	if err != nil {
 		slog.Error(err.Error())
@@ -113,7 +146,7 @@ func (handleError errorHandler) error(w http.ResponseWriter, _ *http.Request) {
 }
 
 func api(w http.ResponseWriter, _ *http.Request) {
-  word := generate.Scramble()
-  w.Header().Set("Content-Type","application/json")
-  json.NewEncoder(w).Encode(word)
+	word := generate.Scramble()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(word)
 }
