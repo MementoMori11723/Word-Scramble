@@ -1,7 +1,10 @@
 package generate
 
 import (
+	"fmt"
+	"log/slog"
 	"math/rand"
+	"os"
 )
 
 type Word struct {
@@ -13,12 +16,15 @@ type Word struct {
 func Scramble() Word {
 	word, err := get_word()
 	if err != nil {
-		panic(err)
+		slog.Error(err.Error())
+		fmt.Println("Internal error!\nCan not get a random word!")
+		os.Exit(1)
 	}
 
 	meaning, err := get_meaning(word)
 	if err != nil {
-		panic(err)
+		slog.Error(err.Error())
+		meaning = "Can't find the meaning!"
 	}
 
 	new_word := []rune(word)
